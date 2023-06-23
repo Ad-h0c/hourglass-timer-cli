@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
 
+
 const argv = require('yargs/yargs')(process.argv.slice(2))
   .options({
     'hours': { type: 'number', default: 0, describe: 'Number of hours' },
@@ -28,6 +29,8 @@ const argv = require('yargs/yargs')(process.argv.slice(2))
   .help()
   .argv;
 
+
+// Display welcome message if no parameters are specified
 if (process.argv.length === 2) {
   console.log(`
       Welcome to Hourglass!
@@ -69,7 +72,7 @@ const PREDEFINED_TIMERS = {
 };
 
 function startTimer(duration, restartDuration, taskName = '') {
-  startTime = Date.now();
+  startTime = Date.now(); // Record the start time
   const totalSeconds = duration.hours * 3600 + duration.minutes * 60 + duration.days * 86400 + duration.seconds;
   remainingTime = Math.max(totalSeconds, 0);
 
@@ -88,32 +91,73 @@ function startTimer(duration, restartDuration, taskName = '') {
     }
 
     let taskInfo = taskName ? `Task: ${taskName}, ` : '';
-    process.stdout.write(`\r${taskInfo}Time remaining: ${formattedTime}`);
+    process.stdout.write(`\r${taskInfo} Time remaining: ${formattedTime}`);
   }
 
-  timerInterval = setInterval(() => {
-    remainingTime--;
-    if (remainingTime <= 0) {
+
+  function saveElapsedTimeToFile() {
+    if (startTime) {
+      const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+      const duration = {
+        days: Math.floor(elapsedTime / 86400),
+        hours: Math.floor((elapsedTime % 86400) / 3600),
+        minutes: Math.floor((elapsedTime % 3600) / 60),
+        seconds: elapsedTime % 60
+      };
+      saveTimerData(duration, argv.taskName, () => process.exit(0));
+    }
+  }
+
+
+  function tick() {
+    if (remainingTime === 0) {
       clearInterval(timerInterval);
-      saveElapsedTimeToFile();
+      console.log('\n\x1b[5mTime\'s up!\x07\x1b[0m');
       if (restartDuration) {
-        console.log('\nStarting a new timer!');
-        startTimer(restartDuration, null, taskName);
+        setTimeout(() => {
+          console.log('Restarting timer...');
+          startTimer(duration, restartDuration);
+        }, restartDuration.hours * 3600000 + restartDuration.minutes * 60000 + restartDuration.seconds * 1000);
       } else {
-        process.exit(0);
+        saveTimerData(duration, askToRepeat);
       }
     } else {
+      remainingTime -= 1;
       displayTime();
     }
-  }, 1000);
+  }
 
-  displayTime();
+
+  function start() {
+    displayTime();
+    timerInterval = setInterval(tick, 1000);
+  }
+
+  function askToRepeat() {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout
+    });
+
+    rl.question('Do you want to repeat the same time again? (y/n) ', (answer) => {
+      rl.close();
+
+      if (answer.toLowerCase() === 'y' || answer === '') {
+        startTimer(duration, restartDuration);
+      } else {
+        console.log('Exiting...');
+        process.exit(0);
+      }
+    });
+  }
+
+  start();
 }
 
-function saveTimerData(duration, taskName, callback) {
+function saveTimerData(duration, callback, taskName = '') {
   const data = {
     timestamp: new Date(Date.now()).toLocaleString(),
-    taskName: taskName,
+    taskName: taskName ? taskName : 'No task name provided',
     duration: {
       hours: duration.hours,
       minutes: duration.minutes,
@@ -121,40 +165,141 @@ function saveTimerData(duration, taskName, callback) {
       seconds: duration.seconds
     }
   };
+
   timerData.push(data);
-  fs.writeFile(DATA_FILE, JSON.stringify(timerData), callback);
+
+  fs.writeFile(DATA_FILE, JSON.stringify(timerData, null, 2), (err) => {
+    if (err) {
+      console.error('Error saving timer data:', err);
+    } else {
+      process.stdout.write('Timer data saved successfully.\n');
+    }
+    if (callback) {
+      callback();
+    }
+  });
 }
 
-function saveElapsedTimeToFile() {
-  if (startTime) {
-    const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
-    const duration = {
-      hours: Math.floor(elapsedTime / 3600),
-      minutes: Math.floor((elapsedTime % 3600) / 60),
-      days: Math.floor(elapsedTime / 86400),
-      seconds: elapsedTime % 60
-    };
-    saveTimerData(duration, argv.taskName, () => process.exit(0));
-  }
-}
 
 async function loadTimerData() {
   try {
-    timerData = JSON.parse(await fs.promises.readFile(DATA_FILE));
+    const fileData = await fs.promises.readFile(DATA_FILE, 'utf8');
+    timerData = JSON.parse(fileData);
+    console.log('Previous Timer Data:');
     console.log(timerData);
-  } catch (error) {
-    console.error('Failed to load timer data:', error.message);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.log('No previous timer data file found.');
+    } else if (err instanceof SyntaxError) {
+      console.log('Timer data file is empty or not in the correct format.');
+    } else {
+      console.error('Error loading timer data:', err);
+    }
+  } finally {
+    process.exit(0);
   }
 }
 
 async function analyzeTimerData() {
   try {
-    timerData = JSON.parse(await fs.promises.readFile(DATA_FILE));
-    // Add your analysis logic here...
-  } catch (error) {
-    console.error('Failed to analyze timer data:', error.message);
+    const fileData = await fs.promises.readFile(DATA_FILE, 'utf8');
+    timerData = JSON.parse(fileData);
+
+    let totalTimers = 0;
+    let totalTime = 0;
+
+    for (const data of timerData) {
+      const { hours, minutes, days, seconds } = data.duration;
+      const durationInSeconds = hours * 3600 + minutes * 60 + days * 86400 + seconds;
+
+      if (durationInSeconds > 0) {
+        totalTime += durationInSeconds;
+        totalTimers++;
+      }
+    }
+
+    const averageTime = totalTimers > 0 ? totalTime / totalTimers : 0;
+
+    console.log('Timer Data Analysis:');
+    console.log(`Total Timers: ${totalTimers}`);
+    console.log(`Total Time: ${totalTime} seconds`);
+    console.log(`Average Time: ${averageTime} seconds`);
+  } catch (err) {
+    if (err.code === 'ENOENT') {
+      console.log('No previous timer data file found.');
+    } else if (err instanceof SyntaxError) {
+      console.log('Timer data file is empty or not in the correct format.');
+    } else {
+      console.error('Error analyzing timer data:', err);
+    }
+  } finally {
+    process.exit(0);
   }
 }
+
+
+function pauseTimer() {
+  if (timerInterval) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    pauseTime = Date.now();
+    console.log('\nTimer paused. Press "r" to resume.');
+  } else {
+    console.log('\nTimer is not running.');
+  }
+}
+
+function resumeTimer() {
+  if (!timerInterval && pauseTime !== null) {
+    const pausedDuration = Math.floor((Date.now() - pauseTime) / 1000);
+    remainingTime += pausedDuration;
+    startTimer({ hours: 0, minutes: 0, days: 0, seconds: remainingTime }, null);
+    pauseTime = null;
+    console.log('\nTimer resumed.');
+  } else {
+    console.log('\nTimer is not paused.');
+  }
+}
+
+
+function saveElapsedTimeToFile() {
+  if (startTime) {
+    const elapsedTime = Math.floor((Date.now() - startTime) / 1000);
+    const duration = {
+      days: Math.floor(elapsedTime / 86400),
+      hours: Math.floor((elapsedTime % 86400) / 3600),
+      minutes: Math.floor((elapsedTime % 3600) / 60),
+      seconds: elapsedTime % 60
+    };
+    saveTimerData(duration, () => process.exit(0), argv.taskName);
+  }
+}
+
+const timerFileExists = fs.existsSync(DATA_FILE);
+
+if (timerFileExists) {
+  fs.readFile(DATA_FILE, 'utf8', (err, fileData) => {
+    if (err) {
+      console.error('Error loading timer data:', err);
+      executeCommand();
+    } else {
+      try {
+        timerData = JSON.parse(fileData);
+        // Ensure timerData is an array if the file is empty
+        if (!Array.isArray(timerData)) {
+          timerData = [];
+        }
+      } catch (err) {
+        // If the file is empty, silently initialize timerData as an empty array
+        timerData = [];
+      }
+      executeCommand();
+    }
+  });
+} else {
+  executeCommand();
+}
+
 
 async function executeCommand() {
   const taskName = argv.taskName;
@@ -171,6 +316,7 @@ async function executeCommand() {
       console.log('Invalid timer number. Choose 1 or 2.');
     }
   } else if (argv.hours || argv.minutes || argv.days || argv.seconds) {
+    // Start custom timer
     const duration = {
       days: argv.days,
       hours: argv.hours,
@@ -180,10 +326,6 @@ async function executeCommand() {
     startTimer(duration, null, taskName);
   }
 }
-
-// process.on('SIGINT', saveElapsedTimeToFile);
-
-
 
 process.on('SIGINT', () => {
   console.log('\nSaving current timer data and exiting...');
@@ -202,5 +344,3 @@ process.stdin.on('data', (key) => {
     saveElapsedTimeToFile();
   }
 });
-
-executeCommand();
