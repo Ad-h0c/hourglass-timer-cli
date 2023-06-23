@@ -80,12 +80,14 @@ The basic syntax of `hourglass` is as follows:
 ./hourglass.js [options]
 ```
 
-- `--days <n>`: Set the number of days.
-- `--hours <n>`: Set the number of hours.
-- `--minutes <n>`: Set the number of minutes.
-- `--seconds <n>`: Set the number of seconds.
-- `--status`: Display the status of the current timer.
-- `--cancel`: Cancel the current timer.
+- --hours [number] : Set the number of hours for the timer.
+- --minutes [number] : Set the number of minutes for the timer.
+- --days [number] : Set the number of days for the timer.
+- --seconds [number] : Set the number of seconds for the timer.
+- --taskName [string] : Name of the task for the timer.
+- --load : Load the previous timer data.
+- --analyze : Analyze the previous timer data.
+- --timer [1 or 2] : Use a predefined timer.
 
 ### Examples
 
@@ -101,16 +103,10 @@ The basic syntax of `hourglass` is as follows:
 ./hourglass.js --hours 2 --minutes 30 --seconds 15
 ```
 
-- Check the status of the current timer:
+- Set a timer with the task name.
 
 ```sh
-./hourglass.js --status
-```
-
-- Cancel the current timer:
-
-```sh
-./hourglass.js --cancel
+./hourglass.js --taskname test --hours 1
 ```
 
 ## Contributing
